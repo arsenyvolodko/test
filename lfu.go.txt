@@ -3,13 +3,10 @@ package lfu
 import (
 	"errors"
 	"iter"
-	"lfucache/internal/linkedlist"
 )
 
-// Error when key not found
 var ErrKeyNotFound = errors.New("key not found")
 
-// Default capacity
 const DefaultCapacity = 5
 
 // Cache
@@ -57,16 +54,15 @@ type Cache[K comparable, V any] interface {
 type cacheImpl[K comparable, V any] struct {
 	capacity        int
 	size            int
-	freqList        map[int]*linkedlist.ListNode[*linkedlist.List[cacheElem[K, V]]]
+	freqList        map[int]*LinkedListNode[*LinkedList[listElem[K, V]]]
 	minFreq         int
-	elementPosition map[K]*linkedlist.ListNode[cacheElem[K, V]]
-	freqListList    *linkedlist.List[*linkedlist.List[cacheElem[K, V]]]
+	elementPosition map[K]*LinkedListNode[listElem[K, V]]
+	freqListList    *LinkedList[*LinkedList[listElem[K, V]]]
 }
 
-// class contains key, value and number of usages
-type cacheElem[K comparable, V any] struct {
-	key K
-	value V
+type listElem[K comparable, V any] struct {
+	key         K
+	value       V
 	numberOfUse int
 }
 
@@ -74,10 +70,9 @@ type cacheElem[K comparable, V any] struct {
 // If no capacity is provided, the cache will use DefaultCapacity.
 func New[K comparable, V any](capacity ...int) *cacheImpl[K, V] {
 	n := new(cacheImpl[K, V])
-	// default values init
-	n.freqList = make(map[int]*linkedlist.ListNode[*linkedlist.List[cacheElem[K, V]]])
-	n.elementPosition = make(map[K]*linkedlist.ListNode[cacheElem[K, V]])
-	n.freqListList = linkedlist.NewList[*linkedlist.List[cacheElem[K, V]]]()
+	n.freqList = make(map[int]*LinkedListNode[*LinkedList[listElem[K, V]]])
+	n.elementPosition = make(map[K]*LinkedListNode[listElem[K, V]])
+	n.freqListList = NewLinkedList[*LinkedList[listElem[K, V]]]()
 
 	if len(capacity) > 0 {
 		if capacity[0] < 0 {
@@ -92,125 +87,95 @@ func New[K comparable, V any](capacity ...int) *cacheImpl[K, V] {
 	return n
 }
 
-// When we don't have list for our frequency we create new one
-//
-// O(1)
-func (l *cacheImpl[K, V]) createListIfNotExists(freq int) (*linkedlist.ListNode[*linkedlist.List[cacheElem[K, V]]]) {
-	list, exists := l.freqList[freq]
+func (l *cacheImpl[K, V]) createListIfNotExists(freq int) *LinkedListNode[*LinkedList[listElem[K, V]]] {
+	_, exists := l.freqList[freq]
 	if !exists {
-		newListNode := linkedlist.NewListNode(linkedlist.NewList[cacheElem[K, V]]())
+		newListNode := NewLinkedListNode(NewLinkedList[listElem[K, V]]())
 		l.freqList[freq] = newListNode
-		// new list to insert to map and list of lists
-		if l.freqListList.Size > 0 {
-			if freq == 1 {
-				// If freq == 1 then we need to add to tail
-				l.freqListList.AddBackward(newListNode)
-			} else {
-				// Else we are incrementing so we need to add after previous freq which always exists
-				l.freqListList.AddBefore(newListNode, l.freqList[freq-1])
-			}
-		} else {
-			// list is empty so we can simply add to front of it
-			l.freqListList.AddForward(newListNode)
-		}
-		return newListNode
+		l.insertFreqListNode(newListNode, freq)
 	}
-	return list
+	return l.freqList[freq]
 }
 
-// Remove element from prev freq list and push to new one
-//
-// O(1)
-func (l *cacheImpl[K, V]) pushForward(position *linkedlist.ListNode[cacheElem[K, V]]) {
-	prev_count := position.Key.numberOfUse
-	// We need to create new list we don't have list with given freq
-	list := l.createListIfNotExists(prev_count + 1)
+func (l *cacheImpl[K, V]) insertFreqListNode(newListNode *LinkedListNode[*LinkedList[listElem[K, V]]], freq int) {
+	if l.freqListList.Size > 0 {
+		if freq == 1 {
+			l.freqListList.PushBack(newListNode)
+		} else {
+			l.freqListList.PushBefore(newListNode, l.freqList[freq-1])
+		}
+	} else {
+		l.freqListList.PushFront(newListNode)
+	}
+}
 
-	prevFreqList := l.freqList[prev_count]
-	// We simply remove our elem from one list and push to another 
-	prevFreqList.Key.RemoveElem(position)
-	list.Key.AddForward(position)
+func (l *cacheImpl[K, V]) PushFront(position *LinkedListNode[listElem[K, V]]) {
+	prevCount := position.Data.numberOfUse
+	list := l.createListIfNotExists(prevCount + 1)
 
-	// incrementing value count of array
-	position.Key.numberOfUse += 1
-	// we need to update min freq if our current min freq list is empty
-	if l.minFreq == prev_count && prevFreqList.Key.Size == 0 {
+	// Move the element to the new frequency list.
+	prevFreqList := l.freqList[prevCount]
+	prevFreqList.Data.Remove(position)
+	list.Data.PushFront(position)
+
+	position.Data.numberOfUse += 1
+	l.updateMinFreq(prevCount, prevFreqList)
+}
+
+func (l *cacheImpl[K, V]) updateMinFreq(prevCount int, prevFreqList *LinkedListNode[*LinkedList[listElem[K, V]]]) {
+	if l.minFreq == prevCount && prevFreqList.Data.Size == 0 {
 		l.minFreq += 1
 	}
-	// we prev list is empty we need to delete it and remove from list of lists
-	if prevFreqList.Key.Size == 0 {
-		l.freqListList.RemoveElem(l.freqList[prev_count])
-		delete(l.freqList, prev_count)
+	if prevFreqList.Data.Size == 0 {
+		l.freqListList.Remove(prevFreqList)
+		delete(l.freqList, prevCount)
 	}
 }
 
-// func that gets element of cache
-//
-// O(1)
 func (l *cacheImpl[K, V]) Get(key K) (V, error) {
 	position, exists := l.elementPosition[key]
 	if !exists {
 		var zeroValue V
 		return zeroValue, ErrKeyNotFound
 	}
-	l.pushForward(position)
-	return position.Key.value, nil
+	l.PushFront(position)
+	return position.Data.value, nil
 }
 
-
-// Removes tail of least freq list
-// Delete all elem occurences in our objects
-//
-// O(1)
 func (l *cacheImpl[K, V]) removeLeastFreqElem() {
-	k := l.freqList[l.minFreq].Key.PopTail()
-	// If current freq list is empty removing it
-	if l.freqList[l.minFreq].Key.Size == 0 {
-		l.freqListList.RemoveElem(l.freqList[l.minFreq])
+	k := l.freqList[l.minFreq].Data.PopFront()
+	if l.freqList[l.minFreq].Data.Size == 0 {
+		l.freqListList.Remove(l.freqList[l.minFreq])
 		delete(l.freqList, l.minFreq)
 	}
 	delete(l.elementPosition, k.key)
 	l.size -= 1
 }
 
-
-// puts element to cache
-//
-// O(1)
 func (l *cacheImpl[K, V]) Put(key K, value V) {
 	position, exists := l.elementPosition[key]
 	if !exists {
 		if l.size == l.capacity {
-			// removing elem
 			l.removeLeastFreqElem()
 		}
-		// Our new elem has value count == 1
-	    // So our new min freq is also 1
-		// Add this elem to this list
 		l.minFreq = 1
 		list := l.createListIfNotExists(1)
-		position = linkedlist.NewListNode(cacheElem[K, V]{key, value, 1})
-		list.Key.AddForward(position)
+		position = NewLinkedListNode(listElem[K, V]{key, value, 1})
+		list.Data.PushFront(position)
 		l.elementPosition[key] = position
 		l.size += 1
 	} else {
-		// simply push elem on list forward to the beggining
-		l.pushForward(position)
+		l.PushFront(position)
 	}
 
-	l.elementPosition[key].Key.value = value
+	l.elementPosition[key].Data.value = value
 }
 
-
-// Iterate over linked list of linkedlist of freqs
-//
-// O(capacity)
 func (l *cacheImpl[K, V]) All() iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
-		// iterate over list of frequency lists
 		for elem := range l.freqListList.All() {
-			for cacheElem := range elem.All() {
-				if !(yield(cacheElem.key, cacheElem.value)) {
+			for listElem := range elem.All() {
+				if !yield(listElem.key, listElem.value) {
 					return
 				}
 			}
@@ -218,22 +183,18 @@ func (l *cacheImpl[K, V]) All() iter.Seq2[K, V] {
 	}
 }
 
-
-// O(1)
 func (l *cacheImpl[K, V]) Size() int {
 	return l.size
 }
 
-// O(1)
 func (l *cacheImpl[K, V]) Capacity() int {
 	return l.capacity
 }
 
-// O(1)
 func (l *cacheImpl[K, V]) GetKeyFrequency(key K) (int, error) {
 	position, exists := l.elementPosition[key]
 	if !exists {
 		return 0, ErrKeyNotFound
 	}
-	return position.Key.numberOfUse, nil
+	return position.Data.numberOfUse, nil
 }

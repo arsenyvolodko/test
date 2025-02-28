@@ -1,125 +1,73 @@
-package linkedlist
+package lfu
 
-import (
-	"iter"
-)
+import "iter"
 
-// List Node
-type ListNode[K any] struct {
-	next *ListNode[K]
-	prev *ListNode[K]
-	Key  K
+type LinkedListNode[K any] struct {
+	prev *LinkedListNode[K]
+	next *LinkedListNode[K]
+	Data K
 }
 
-// creates new ListNode of given type
-//
-// O(1)
-func NewListNode[K any](key K) *ListNode[K] {
-	return &ListNode[K]{nil, nil, key}
+func NewLinkedListNode[K any](key K) *LinkedListNode[K] {
+	return &LinkedListNode[K]{nil, nil, key}
 }
 
-func NewList[K any] () *List[K] {
-	list := &List[K]{nil, nil, 0}
-	var zeroValue K
-	list.head = NewListNode(zeroValue)
-	list.tail = NewListNode(zeroValue)
-	list.head.next = list.tail
-	list.tail.prev = list.head
-	return list
-}
-
-
-// Connect two nodes
-//
-// O(1)
-func (l *List[K]) connectTwoNodes(prev *ListNode[K], next *ListNode[K]) {
-	prev.next = next
-	next.prev = prev
-}
-
-
-
-// List Interface
-// Has methods: 
-// AddForward: adds element to the front of list
-// RemoveElem: removes element from the list
-// PopTail: pos tail of list and get key value
-// AddBackward: adds element to the end of list
-// AddBefore: adds element before given element
-// All: iterate over all list elems
-type ListInterface[K any] interface {
-	AddForward(key K)
-	RemoveElem(node *ListNode[K])
-	PopTail() K
-	AddBackward(node *ListNode[K])
-	AddBefore(node *ListNode[K], before *ListNode[K])
-	All() iter.Seq[K]
-}
-
-// Linked list struct
-// contains head, tail and size as usual linked list
-type List[K any] struct {
-	head *ListNode[K]
-	tail *ListNode[K]
+type LinkedList[K any] struct {
+	head *LinkedListNode[K]
+	tail *LinkedListNode[K]
 	Size int
 }
 
-// add element to the front of list
-//
-// O(1)
-func (l *List[K]) AddForward(node *ListNode[K]) {
-	l.connectTwoNodes(node, l.head.next)
-	l.connectTwoNodes(l.head, node)
-	l.Size += 1
+func NewLinkedList[K any]() *LinkedList[K] {
+	var zeroValue K
+	list := &LinkedList[K]{}
+	list.tail = NewLinkedListNode(zeroValue)
+	list.head = NewLinkedListNode(zeroValue)
+	list.tail.prev = list.head
+	list.head.next = list.tail
+	return list
 }
 
-// Add element to the end of list
-//
-// O(1)
-func (l *List[K]) AddBackward(node *ListNode[K]) {
-	l.connectTwoNodes(l.tail.prev, node)
-	l.connectTwoNodes(node, l.tail)
-	
-	l.Size += 1
+func (l *LinkedList[K]) InsertBetween(prev *LinkedListNode[K], next *LinkedListNode[K], node *LinkedListNode[K]) {
+	node.prev = prev
+	node.next = next
+	prev.next = node
+	next.prev = node
+	l.Size++
 }
 
-// add element before given element
-//
-// O(1)
-func (l *List[K]) AddBefore(node *ListNode[K], before *ListNode[K]) {
-	l.connectTwoNodes(before.prev, node)
-	l.connectTwoNodes(node, before)
-	l.Size += 1
+func (l *LinkedList[K]) removeNode(node *LinkedListNode[K]) K {
+	node.prev.next = node.next
+	node.next.prev = node.prev
+	l.Size--
+	return node.Data
 }
 
-// pop tail of list and get key value
-//
-// O(1)
-func (l *List[K]) PopTail() K {
-	node := l.tail.prev
-	l.connectTwoNodes(node.prev, l.tail)
-	l.Size -= 1
-	return node.Key
+func (l *LinkedList[K]) PushBack(node *LinkedListNode[K]) {
+	l.InsertBetween(l.tail.prev, l.tail, node)
 }
 
-// remove given element from list
-//
-// O(1)
-func (l *List[K]) RemoveElem(node *ListNode[K]) {
-	l.connectTwoNodes(node.prev, node.next)
-	l.Size -= 1
+func (l *LinkedList[K]) PopFront() K {
+	return l.removeNode(l.tail.prev)
 }
 
+func (l *LinkedList[K]) PushFront(node *LinkedListNode[K]) {
+	l.InsertBetween(l.head, l.head.next, node)
+}
 
-// iterate over all list elements
-//
-// O(Size)
-func (l *List[K]) All() iter.Seq[K] {
+func (l *LinkedList[K]) Remove(node *LinkedListNode[K]) {
+	l.removeNode(node)
+}
+
+func (l *LinkedList[K]) PushBefore(node *LinkedListNode[K], before *LinkedListNode[K]) {
+	l.InsertBetween(before.prev, before, node)
+}
+
+func (l *LinkedList[K]) All() iter.Seq[K] {
 	return func(yield func(K) bool) {
-		// iterate over list of frequency lists
 		elem := l.head.next
-		for (elem != l.tail) {
-			if !yield(elem.Key) {
+		for elem != l.tail {
+			if !yield(elem.Data) {
 				return
 			}
 			elem = elem.next
